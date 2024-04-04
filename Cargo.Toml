@@ -1,0 +1,22 @@
+[package]
+name = "xgpu"
+version = "0.0.1-alpha.0"
+description = "A wrapper for gpu graphics / compute APIs"
+authors = ["Jacob R. Green"]
+edition = "2021"
+
+[features]
+default = ["gpu_debugging", "graphics", "vulkan"]
+gpu_debugging = []
+graphics = []
+compute = []
+vulkan = ["dep:vulkan-sys"]
+directx12 = []
+directx11 = []
+directx9 = []
+
+[dependencies]
+vulkan-sys = { path = "../vulkan-sys", optional = true }
+
+[dev-dependencies]
+glfw = "0.55.0"
