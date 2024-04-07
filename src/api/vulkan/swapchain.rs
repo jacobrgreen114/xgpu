@@ -1,17 +1,18 @@
 // Copyright (c) 2024 Jacob R. Green
 // All rights reserved.
 
-use crate::api::vulkan::{device, surface, Api, Ownership, VulkanObject};
+use crate::api::vulkan::{device, surface, Ownership, VulkanApi, VulkanObject};
 use crate::prelude::GraphicsApi;
 use crate::{PresentMode, SwapchainCreateInfo};
 use std::fmt::{Debug, Formatter};
 use std::ptr::{null, null_mut};
+
 use vulkan_sys::*;
 
 struct SwapchainOwnership {
     handle: VkSwapchainKHR,
-    surface: surface::Surface,
-    device: device::Device,
+    surface: surface::VulkanSurface,
+    device: device::VulkanDevice,
 }
 
 impl Drop for SwapchainOwnership {
@@ -26,12 +27,12 @@ impl Drop for SwapchainOwnership {
 }
 
 #[derive(Clone)]
-pub struct Swapchain {
+pub struct VulkanSwapchain {
     handle: VkSwapchainKHR,
     ownership: Ownership<SwapchainOwnership>,
 }
 
-impl Debug for Swapchain {
+impl Debug for VulkanSwapchain {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(std::any::type_name::<Self>())
             .field("handle", &self.handle)
@@ -39,10 +40,10 @@ impl Debug for Swapchain {
     }
 }
 
-impl crate::api::traits::Swapchain<Api> for Swapchain {
+impl crate::api::traits::Swapchain<VulkanApi> for VulkanSwapchain {
     fn new(
-        surface: <Api as GraphicsApi>::Surface,
-        context: <Api as GraphicsApi>::Context,
+        surface: <VulkanApi as GraphicsApi>::Surface,
+        context: <VulkanApi as GraphicsApi>::Context,
         create_info: &SwapchainCreateInfo,
     ) -> crate::Result<Self> {
         let create_info = VkSwapchainCreateInfoKHR {
@@ -67,8 +68,11 @@ impl crate::api::traits::Swapchain<Api> for Swapchain {
         };
 
         let handle =
-            vk::create_swapchain_khr(vkCreateSwapchainKHR, context.handle(), &create_info, None)
-                .map_err(|_| {})?;
+            vk::create_swapchain_khr(vkCreateSwapchainKHR, context.handle(), &create_info, None)?;
+
+        // todo : do something with swapchain images
+        let images =
+            vk::get_swapchain_images_khr(vkGetSwapchainImagesKHR, context.handle(), handle)?;
 
         let ownership = Ownership::new(SwapchainOwnership {
             handle,
@@ -76,11 +80,11 @@ impl crate::api::traits::Swapchain<Api> for Swapchain {
             device: context,
         });
 
-        Ok(Swapchain { handle, ownership })
+        Ok(VulkanSwapchain { handle, ownership })
     }
 }
 
-impl VulkanObject for Swapchain {
+impl VulkanObject for VulkanSwapchain {
     type Handle = VkSwapchainKHR;
 
     fn handle(&self) -> Self::Handle {

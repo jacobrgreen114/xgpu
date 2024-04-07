@@ -1,32 +1,67 @@
 // Copyright (c) 2024 Jacob R. Green
 // All rights reserved.
 
-mod device;
 mod instance;
-mod surface;
-mod swapchain;
-
-pub use device::*;
 pub use instance::*;
+
+mod physical_device;
+pub use physical_device::*;
+
+mod surface;
 pub use surface::*;
+
+mod device;
+pub use device::*;
+
+mod command;
+pub use command::*;
+
+mod swapchain;
 pub use swapchain::*;
+
+mod shader;
+pub use shader::*;
+
+mod pipeline;
+pub use pipeline::*;
+
+// mod graphics_pipeline;
+// pub use graphics_pipeline::*;
 
 use vulkan_sys::*;
 
-use crate::api::traits::*;
-use crate::*;
-
 use std::sync::Arc;
 
-pub struct Api;
-impl GraphicsApi for Api {
-    type Root = instance::Instance;
-    type Device = instance::PhysicalDevice;
-    type Surface = surface::Surface;
-    type SurfaceCapabilities = instance::SurfaceCapabilities;
-    type Context = device::Device;
-    type Queue = device::Queue;
-    type Swapchain = swapchain::Swapchain;
+pub struct VulkanApi;
+impl crate::api::traits::GraphicsApi for VulkanApi {
+    type Root = VulkanInstance;
+    type Device = VulkanPhysicalDevice;
+    type DeviceProperties = VulkanPhysicalDeviceProperties;
+    type DeviceFeatures = VulkanPhysicalDeviceFeatures;
+    type Surface = VulkanSurface;
+    type SurfaceCapabilities = VulkanSurfaceCapabilities;
+    type Context = VulkanDevice;
+    type Queue = VulkanQueue;
+    type CommandPool = VulkanCommandPool;
+    type CommandBuffer = VulkanCommandBuffer;
+    type Swapchain = VulkanSwapchain;
+
+    type ShaderCode<'a> = VulkanShaderCode<'a>;
+    type Shader = VulkanShaderModule;
+
+    type PipelineLayout = VulkanPipelineLayout;
+    type RenderPass = VulkanRenderPass;
+
+    type VertexInputState = VulkanPipelineVertexInputStateCreateInfo;
+    type InputAssemblyState = VulkanPipelineInputAssemblyStateCreateInfo;
+    type RasterizationState = VulkanPipelineRasterizationStateCreateInfo;
+    type GraphicsPipeline = VulkanGraphicsPipeline;
+
+    const FORMAT_R8G8B8A8_UNORM: i32 = VK_FORMAT_R8G8B8A8_UNORM;
+    const FORMAT_R8G8B8A8_UNORM_SRGB: i32 = VK_FORMAT_R8G8B8A8_SRGB;
+    const FORMAT_B8G8R8A8_UNORM: i32 = VK_FORMAT_B8G8R8A8_UNORM;
+    const FORMAT_B8G8R8A8_UNORM_SRGB: i32 = VK_FORMAT_B8G8R8A8_SRGB;
+    const FORMAT_R16G16B16A16_FLOAT: i32 = VK_FORMAT_R16G16B16A16_SFLOAT;
 }
 
 pub trait VulkanObject {
@@ -35,51 +70,57 @@ pub trait VulkanObject {
     fn handle(&self) -> Self::Handle;
 }
 
+pub trait VulkanType {
+    type Type;
+
+    fn native(&self) -> &Self::Type;
+}
+
 type Ownership<T> = Arc<T>;
 
-impl Into<VkPresentModeKHR> for PresentMode {
+impl Into<VkPresentModeKHR> for crate::PresentMode {
     fn into(self) -> VkPresentModeKHR {
         unsafe { std::mem::transmute(self) }
     }
 }
 
-impl From<VkPresentModeKHR> for PresentMode {
+impl From<VkPresentModeKHR> for crate::PresentMode {
     fn from(value: VkPresentModeKHR) -> Self {
         unsafe { std::mem::transmute(value) }
     }
 }
 
-impl Into<VkCompositeAlphaFlagBitsKHR> for CompositeAlpha {
+impl Into<VkCompositeAlphaFlagBitsKHR> for crate::CompositeAlpha {
     fn into(self) -> VkCompositeAlphaFlagBitsKHR {
         unsafe { std::mem::transmute(self) }
     }
 }
 
-impl Into<VkFormat> for Format {
+impl Into<VkFormat> for crate::RenderTargetFormat {
     fn into(self) -> VkFormat {
         unsafe { std::mem::transmute(self) }
     }
 }
 
-impl From<VkFormat> for Format {
+impl From<VkFormat> for crate::RenderTargetFormat {
     fn from(value: VkFormat) -> Self {
         unsafe { std::mem::transmute(value) }
     }
 }
 
-impl Into<VkColorSpaceKHR> for Colorspace {
+impl Into<VkColorSpaceKHR> for crate::Colorspace {
     fn into(self) -> VkColorSpaceKHR {
         unsafe { std::mem::transmute(self) }
     }
 }
 
-impl From<VkColorSpaceKHR> for Colorspace {
+impl From<VkColorSpaceKHR> for crate::Colorspace {
     fn from(value: VkColorSpaceKHR) -> Self {
         unsafe { std::mem::transmute(value) }
     }
 }
 
-impl From<VkSurfaceFormatKHR> for SurfaceFormat {
+impl From<VkSurfaceFormatKHR> for crate::SurfaceFormat {
     fn from(value: VkSurfaceFormatKHR) -> Self {
         Self {
             format: value.format.into(),
@@ -88,7 +129,7 @@ impl From<VkSurfaceFormatKHR> for SurfaceFormat {
     }
 }
 
-impl Into<VkExtent2D> for Extent2D {
+impl Into<VkExtent2D> for crate::Extent2D {
     fn into(self) -> VkExtent2D {
         VkExtent2D {
             width: self.width,
@@ -97,11 +138,17 @@ impl Into<VkExtent2D> for Extent2D {
     }
 }
 
-impl From<VkExtent2D> for Extent2D {
+impl From<VkExtent2D> for crate::Extent2D {
     fn from(value: VkExtent2D) -> Self {
         Self {
             width: value.width,
             height: value.height,
         }
+    }
+}
+
+impl Into<VkShaderStageFlagBits> for crate::ShaderStage {
+    fn into(self) -> VkShaderStageFlagBits {
+        unsafe { std::mem::transmute(self) }
     }
 }

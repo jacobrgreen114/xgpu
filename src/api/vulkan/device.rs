@@ -2,7 +2,9 @@
 // All rights reserved.
 
 use crate::api::traits::*;
-use crate::api::vulkan::{Api, Instance, Ownership, PhysicalDevice, VulkanObject};
+use crate::api::vulkan::{
+    Ownership, VulkanApi, VulkanInstance, VulkanObject, VulkanPhysicalDevice,
+};
 use crate::ContextCreateInfo;
 use std::any::type_name;
 use std::fmt::{Debug, Formatter};
@@ -11,26 +13,26 @@ use std::sync::Weak;
 
 use vulkan_sys::*;
 
-struct DeviceOwnership {
+struct VulkanDeviceOwnership {
     handle: VkDevice,
-    instance: Instance,
-    physical_device: PhysicalDevice,
-    queues: Vec<<Api as GraphicsApi>::Queue>,
+    instance: VulkanInstance,
+    physical_device: VulkanPhysicalDevice,
+    queues: Vec<<VulkanApi as GraphicsApi>::Queue>,
 }
 
-impl Drop for DeviceOwnership {
+impl Drop for VulkanDeviceOwnership {
     fn drop(&mut self) {
         vk::destroy_device(vkDestroyDevice, self.handle, None);
     }
 }
 
 #[derive(Clone)]
-pub struct Device {
+pub struct VulkanDevice {
     handle: VkDevice,
-    ownership: Ownership<DeviceOwnership>,
+    ownership: Ownership<VulkanDeviceOwnership>,
 }
 
-impl Debug for Device {
+impl Debug for VulkanDevice {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(type_name::<Self>())
             .field("handle", &self.handle)
@@ -38,7 +40,7 @@ impl Debug for Device {
     }
 }
 
-impl VulkanObject for Device {
+impl VulkanObject for VulkanDevice {
     type Handle = VkDevice;
 
     fn handle(&self) -> Self::Handle {
@@ -62,12 +64,12 @@ fn get_device_extensions() -> Vec<*const std::ffi::c_char> {
     vec
 }
 
-impl Context<Api> for Device {
+impl Context<VulkanApi> for VulkanDevice {
     fn new(
-        root: <Api as GraphicsApi>::Root,
-        device: <Api as GraphicsApi>::Device,
+        root: <VulkanApi as GraphicsApi>::Root,
+        device: <VulkanApi as GraphicsApi>::Device,
         _create_info: ContextCreateInfo,
-    ) -> Result<Self, ()> {
+    ) -> crate::Result<Self> {
         let layers = get_device_layers();
         let extensions = get_device_extensions();
 
@@ -98,22 +100,21 @@ impl Context<Api> for Device {
             pEnabledFeatures: &features,
         };
 
-        let handle = vk::create_device(vkCreateDevice, device.handle(), &create_info, None)
-            .map_err(|_| {})?;
+        let handle = vk::create_device(vkCreateDevice, device.handle(), &create_info, None)?;
 
         let queue = vk::get_device_queue(vkGetDeviceQueue, handle, 0, 0);
 
-        let ownership = Ownership::new_cyclic(|weak| DeviceOwnership {
+        let ownership = Ownership::new_cyclic(|weak| VulkanDeviceOwnership {
             handle,
             instance: root,
             physical_device: device,
-            queues: vec![<Api as GraphicsApi>::Queue::new(queue, weak.clone())],
+            queues: vec![<VulkanApi as GraphicsApi>::Queue::new(queue, weak.clone())],
         });
 
-        Ok(Device { handle, ownership })
+        Ok(VulkanDevice { handle, ownership })
     }
 
-    fn queues(&self) -> &[<Api as GraphicsApi>::Queue] {
+    fn queues(&self) -> &[<VulkanApi as GraphicsApi>::Queue] {
         self.ownership.queues.as_slice()
     }
 }
@@ -124,24 +125,24 @@ impl Context<Api> for Device {
 
 struct QueueOwnership {
     handle: VkQueue,
-    device: Weak<DeviceOwnership>,
+    device: Weak<VulkanDeviceOwnership>,
 }
 
 #[derive(Clone)]
-pub struct Queue {
+pub struct VulkanQueue {
     handle: VkQueue,
     ownership: Ownership<QueueOwnership>,
 }
 
-impl Queue {
-    fn new(handle: VkQueue, device: Weak<DeviceOwnership>) -> Self {
+impl VulkanQueue {
+    fn new(handle: VkQueue, device: Weak<VulkanDeviceOwnership>) -> Self {
         let ownership = Ownership::new(QueueOwnership { handle, device });
 
         Self { handle, ownership }
     }
 }
 
-impl Debug for Queue {
+impl Debug for VulkanQueue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(type_name::<Self>())
             .field("handle", &self.handle)
@@ -149,9 +150,9 @@ impl Debug for Queue {
     }
 }
 
-impl crate::api::traits::Queue<Api> for Queue {}
+impl crate::api::traits::Queue<VulkanApi> for VulkanQueue {}
 
-impl VulkanObject for Queue {
+impl VulkanObject for VulkanQueue {
     type Handle = VkQueue;
 
     fn handle(&self) -> Self::Handle {

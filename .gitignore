@@ -1,4 +1,7 @@
 
+# TODO: Remove
+shaders/
+
 # Build Files
 target/
 
@@ -7,3 +10,5 @@ Cargo.lock
 
 # IDE Files
 .idea/
+.fleet/
+.vscode/

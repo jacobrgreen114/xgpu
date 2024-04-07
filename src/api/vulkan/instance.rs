@@ -4,35 +4,45 @@
 use crate::api::traits::*;
 use crate::api::vulkan::*;
 use std::any::type_name;
-use std::cell::Cell;
 use std::fmt::{Debug, Formatter};
-use std::ops::Deref;
-use std::ptr::{null, null_mut};
 use std::sync::OnceLock;
-use std::sync::Weak;
 
 use crate::prelude::ApiRoot;
-use crate::{ContextCreateInfo, DeviceType, RootCreateInfo, Vendor};
+use crate::RootCreateInfo;
 use vulkan_sys::*;
 
 struct InstanceOwnership {
     handle: VkInstance,
-    physical_devices: OnceLock<Vec<<Api as GraphicsApi>::Device>>,
+    physical_devices: OnceLock<Vec<<VulkanApi as GraphicsApi>::Device>>,
+
+    #[cfg(feature = "gpu_debugging")]
+    debug_messenger: VkDebugUtilsMessengerEXT,
+
+    #[cfg(feature = "gpu_debugging")]
+    destroy_debug_utils:
+        unsafe extern "C" fn(VkInstance, VkDebugUtilsMessengerEXT, *const VkAllocationCallbacks),
 }
 
 impl Drop for InstanceOwnership {
     fn drop(&mut self) {
+        #[cfg(feature = "gpu_debugging")]
+        vk::destroy_debug_utils_messenger_ext(
+            self.destroy_debug_utils,
+            self.handle,
+            self.debug_messenger,
+            None,
+        );
         vk::destroy_instance(vkDestroyInstance, self.handle, None);
     }
 }
 
 #[derive(Clone)]
-pub struct Instance {
+pub struct VulkanInstance {
     handle: VkInstance,
     ownership: Ownership<InstanceOwnership>,
 }
 
-impl Debug for Instance {
+impl Debug for VulkanInstance {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(type_name::<Self>())
             .field("handle", &self.handle)
@@ -70,35 +80,92 @@ fn get_instance_extensions() -> Vec<*const std::ffi::c_char> {
     vec
 }
 
-impl ApiRoot<Api> for Instance {
-    fn new(_create_info: RootCreateInfo) -> Result<Self> {
+impl ApiRoot<VulkanApi> for VulkanInstance {
+    fn new(_create_info: &RootCreateInfo) -> crate::Result<Self> {
         let layers = get_instance_layers();
         let extensions = get_instance_extensions();
 
         let instance_create_info = VkInstanceCreateInfo {
             sType: VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-            pNext: null(),
+            pNext: std::ptr::null(),
             flags: 0,
-            pApplicationInfo: null(),
+            pApplicationInfo: std::ptr::null(),
             enabledLayerCount: layers.len() as u32,
             ppEnabledLayerNames: layers.as_ptr(),
             enabledExtensionCount: extensions.len() as u32,
             ppEnabledExtensionNames: extensions.as_ptr(),
         };
 
-        let handle =
-            vk::create_instance(vkCreateInstance, &instance_create_info, None).map_err(|_| {})?;
+        let handle = vk::create_instance(vkCreateInstance, &instance_create_info, None)?;
 
-        Ok(Instance {
-            handle,
-            ownership: Ownership::new(InstanceOwnership {
+        #[cfg(feature = "gpu_debugging")]
+        let (debug_messenger, destroy_debug_utils) = {
+            let create_debug_utils = {
+                let create: PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
+                    std::mem::transmute(vk::get_instance_proc_addr(
+                        vkGetInstanceProcAddr,
+                        handle,
+                        c"vkCreateDebugUtilsMessengerEXT",
+                    ))
+                };
+                create.unwrap()
+            };
+
+            #[cfg(feature = "gpu_debugging")]
+            let destroy_debug_utils = {
+                let destroy: PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {
+                    std::mem::transmute(vk::get_instance_proc_addr(
+                        vkGetInstanceProcAddr,
+                        handle,
+                        c"vkDestroyDebugUtilsMessengerEXT",
+                    ))
+                };
+
+                destroy.unwrap()
+            };
+
+            let debug_utils_create_info = VkDebugUtilsMessengerCreateInfoEXT {
+                sType: VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                pNext: std::ptr::null(),
+                flags: 0,
+                messageSeverity: (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+                    | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT)
+                    as VkDebugUtilsMessageSeverityFlagsEXT,
+                messageType: (VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                    | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                    | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
+                    as VkDebugUtilsMessageTypeFlagsEXT,
+                pfnUserCallback: Some(debug_utils_callback),
+                pUserData: std::ptr::null_mut(),
+            };
+
+            let debug_messenger = vk::create_debug_utils_messenger_ext(
+                create_debug_utils,
                 handle,
-                physical_devices: OnceLock::new(),
-            }),
-        })
+                &debug_utils_create_info,
+                None,
+            )?;
+
+            (debug_messenger, destroy_debug_utils)
+        };
+
+        let ownership = Ownership::new(InstanceOwnership {
+            handle,
+            physical_devices: OnceLock::new(),
+
+            #[cfg(feature = "gpu_debugging")]
+            debug_messenger,
+
+            #[cfg(feature = "gpu_debugging")]
+            destroy_debug_utils,
+        });
+
+        Ok(VulkanInstance { handle, ownership })
     }
 
-    fn devices(&self) -> &[<Api as GraphicsApi>::Device] {
+    fn devices(&self) -> &[<VulkanApi as GraphicsApi>::Device] {
         self.ownership
             .physical_devices
             .get_or_init(|| self.enumerate_physical_device().unwrap())
@@ -106,25 +173,27 @@ impl ApiRoot<Api> for Instance {
     }
 }
 
-impl Instance {
-    fn enumerate_physical_device(&self) -> Result<Vec<<Api as GraphicsApi>::Device>> {
-        vk::enumerate_physical_device(vkEnumeratePhysicalDevices, self.handle)
-            .map(|v| {
-                v.into_iter()
-                    .map(|handle| {
-                        let properties = vk::get_physical_device_properties(
-                            vkGetPhysicalDeviceProperties,
-                            handle,
-                        );
-                        PhysicalDevice::new(handle, properties)
-                    })
-                    .collect()
-            })
-            .map_err(|e| {})
+impl VulkanInstance {
+    fn enumerate_physical_device(&self) -> crate::Result<Vec<<VulkanApi as GraphicsApi>::Device>> {
+        let to_physical_device = |handle: VkPhysicalDevice| {
+            let properties =
+                vk::get_physical_device_properties(vkGetPhysicalDeviceProperties, handle);
+            let features = vk::get_physical_device_features(vkGetPhysicalDeviceFeatures, handle);
+
+            VulkanPhysicalDevice::new(handle, properties, features)
+        };
+
+        let convert_handles =
+            |handles: Vec<VkPhysicalDevice>| handles.into_iter().map(to_physical_device).collect();
+
+        Ok(
+            vk::enumerate_physical_device(vkEnumeratePhysicalDevices, self.handle)
+                .map(convert_handles)?,
+        )
     }
 }
 
-impl VulkanObject for Instance {
+impl VulkanObject for VulkanInstance {
     type Handle = VkInstance;
 
     fn handle(&self) -> Self::Handle {
@@ -132,158 +201,108 @@ impl VulkanObject for Instance {
     }
 }
 
-struct PhysicalDeviceOwnership {
-    handle: VkPhysicalDevice,
-    properties: VkPhysicalDeviceProperties,
-    name: Cell<&'static str>,
+/*
+   Debug Utils
+*/
+
+// todo : implement user application callbacks
+#[cfg(feature = "gpu_debugging")]
+unsafe extern "C" fn debug_utils_callback(
+    severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
+    message_type: VkDebugUtilsMessageTypeFlagsEXT,
+    data: *const VkDebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::ffi::c_void,
+) -> VkBool32 {
+    debug_utils_callback_safe(severity, message_type, &*data);
+    VK_FALSE
 }
 
-#[derive(Clone)]
-pub struct PhysicalDevice {
-    handle: VkPhysicalDevice,
-    ownership: Ownership<PhysicalDeviceOwnership>,
+#[cfg(feature = "gpu_debugging")]
+struct DebugUtilsObjectNameWrapper<'a> {
+    object_type: VkObjectType,
+    object_name: &'a str,
 }
 
-impl Debug for PhysicalDevice {
+#[cfg(feature = "gpu_debugging")]
+impl Debug for DebugUtilsObjectNameWrapper<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(type_name::<Self>())
-            .field("handle", &self.handle)
-            .field("name", &self.name())
-            .field("type", &self.device_type())
-            .field("vendor", &self.vendor())
+        f.debug_struct("")
+            .field("type", &self.object_type)
+            .field("name", &self.object_name)
             .finish()
     }
 }
 
-impl PhysicalDevice {
-    fn new(handle: VkPhysicalDevice, properties: VkPhysicalDeviceProperties) -> Self {
-        let ownership = Ownership::new(PhysicalDeviceOwnership {
-            handle,
-            properties,
-            name: Cell::new(unsafe { std::str::from_utf8_unchecked(&[]) }),
-        });
+#[cfg(feature = "gpu_debugging")]
+fn create_message(data: &VkDebugUtilsMessengerCallbackDataEXT) -> String {
+    // #[cfg(windows)]
+    // const LINE_ENDING: &'static str = "\r\n";
+    // #[cfg(not(windows))]
+    // const LINE_ENDING: &'static str = "\n";
 
-        ownership.name.set(
-            unsafe { std::ffi::CStr::from_ptr(ownership.properties.deviceName.as_ptr()) }
-                .to_str()
-                .unwrap(),
+    let message_name = unsafe {
+        std::ffi::CStr::from_ptr(data.pMessageIdName)
+            .to_str()
+            .unwrap()
+    };
+    let message = unsafe { std::ffi::CStr::from_ptr(data.pMessage).to_str().unwrap() };
+
+    // let objects = unsafe { std::slice::from_raw_parts(data.pObjects, data.objectCount as usize) }
+    //     .iter()
+    //     .map(|object| {
+    //         let object_name = unsafe {
+    //             (object.pObjectName != std::ptr::null())
+    //                 .then(|| {
+    //                     std::ffi::CStr::from_ptr(object.pObjectName)
+    //                         .to_str()
+    //                         .unwrap()
+    //                 })
+    //                 .unwrap_or("None")
+    //         };
+    //         DebugUtilsObjectNameWrapper {
+    //             object_type: object.objectType,
+    //             object_name,
+    //         }
+    //     })
+    //     .collect::<Vec<_>>();
+
+    // let formatted_message = format!(
+    //     "Objects = {:#?}{}{}: {}",
+    //     objects, LINE_ENDING, message_name, message
+    // );
+
+    let formatted_message = format!("{}: {}", message_name, message);
+
+    formatted_message
+}
+
+#[cfg(feature = "gpu_debugging")]
+fn debug_utils_callback_safe(
+    severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
+    _types: VkDebugUtilsMessageTypeFlagsEXT,
+    data: &VkDebugUtilsMessengerCallbackDataEXT,
+) {
+    if severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT {
+        panic!("{}", create_message(data));
+    }
+
+    let level = match severity {
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT => log::Level::Trace,
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT => log::Level::Debug,
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT => log::Level::Warn,
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT => log::Level::Error,
+        _ => panic!(),
+    };
+
+    if log::logger().enabled(&log::Metadata::builder().level(level).build()) {
+        let msg = create_message(data);
+
+        log::logger().log(
+            &log::Record::builder()
+                .args(format_args!("{}", msg))
+                .level(level)
+                .target("Vulkan")
+                .build(),
         );
-
-        Self { handle, ownership }
-    }
-}
-
-impl crate::api::traits::Device<Api> for PhysicalDevice {
-    fn name(&self) -> &str {
-        self.ownership.name.get()
-    }
-
-    fn device_type(&self) -> DeviceType {
-        match self.ownership.properties.deviceType {
-            VK_PHYSICAL_DEVICE_TYPE_OTHER => DeviceType::Unknown,
-            VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU => DeviceType::IntegratedGpu,
-            VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU => DeviceType::DiscreteGpu,
-            VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU => DeviceType::VirtualGpu,
-            VK_PHYSICAL_DEVICE_TYPE_CPU => DeviceType::Cpu,
-            _ => panic!("Invalid device type!"),
-        }
-    }
-
-    fn vendor(&self) -> Vendor {
-        unsafe { std::mem::transmute(self.ownership.properties.vendorID) }
-    }
-
-    fn supports_surface(&self, surface: <Api as GraphicsApi>::Surface) -> bool {
-        // todo : implement queue family indexing
-        vk::get_physical_device_surface_support_khr(
-            vkGetPhysicalDeviceSurfaceSupportKHR,
-            self.handle(),
-            0,
-            surface.handle(),
-        )
-        .unwrap()
-    }
-
-    fn get_surface_capabilities(
-        &self,
-        surface: <Api as GraphicsApi>::Surface,
-    ) -> crate::Result<<Api as GraphicsApi>::SurfaceCapabilities> {
-        vk::get_physical_device_surface_capabilities_khr(
-            vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
-            self.handle(),
-            surface.handle(),
-        )
-        .map(|native| SurfaceCapabilities { native })
-        .map_err(|_| {})
-    }
-
-    fn get_surface_formats(
-        &self,
-        surface: <Api as GraphicsApi>::Surface,
-    ) -> Result<Vec<SurfaceFormat>> {
-        vk::get_physical_device_surface_formats_khr(
-            vkGetPhysicalDeviceSurfaceFormatsKHR,
-            self.handle(),
-            surface.handle(),
-        )
-        .map(|formats| formats.into_iter().map(|sf| sf.into()).collect())
-        .map_err(|_| {})
-    }
-
-    fn get_surface_present_modes(
-        &self,
-        surface: <Api as GraphicsApi>::Surface,
-    ) -> Result<Vec<PresentMode>> {
-        vk::get_physical_device_surface_present_modes_khr(
-            vkGetPhysicalDeviceSurfacePresentModesKHR,
-            self.handle(),
-            surface.handle(),
-        )
-        .map(|formats| formats.into_iter().map(|pm| pm.into()).collect())
-        .map_err(|_| {})
-    }
-}
-
-impl VulkanObject for PhysicalDevice {
-    type Handle = VkPhysicalDevice;
-
-    fn handle(&self) -> Self::Handle {
-        self.handle
-    }
-}
-
-pub struct SurfaceCapabilities {
-    native: VkSurfaceCapabilitiesKHR,
-}
-
-impl Debug for SurfaceCapabilities {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.native.fmt(f)
-    }
-}
-
-impl crate::api::traits::SurfaceCapabilities<Api> for SurfaceCapabilities {
-    fn min_image_count(&self) -> u32 {
-        self.native.minImageCount
-    }
-
-    fn max_image_count(&self) -> u32 {
-        self.native.maxImageCount
-    }
-
-    fn current_extent(&self) -> Extent2D {
-        self.native.currentExtent.into()
-    }
-
-    fn min_image_extent(&self) -> Extent2D {
-        self.native.minImageExtent.into()
-    }
-
-    fn max_image_extent(&self) -> Extent2D {
-        self.native.maxImageExtent.into()
-    }
-
-    fn max_image_array_layers(&self) -> u32 {
-        self.native.maxImageArrayLayers
     }
 }

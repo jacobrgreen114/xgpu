@@ -4,6 +4,7 @@ version = "0.0.1-alpha.0"
 description = "A wrapper for gpu graphics / compute APIs"
 authors = ["Jacob R. Green"]
 edition = "2021"
+license-file = "LICENSE"
 
 [features]
 default = ["gpu_debugging", "graphics", "vulkan"]
@@ -11,12 +12,24 @@ gpu_debugging = []
 graphics = []
 compute = []
 vulkan = ["dep:vulkan-sys"]
-directx12 = []
-directx11 = []
-directx9 = []
+directx = ["windows/Win32_Graphics_Dxgi", "windows/Win32_Graphics_Dxgi_Common", "windows/Win32_Graphics_Direct3D", "windows/Win32_Graphics_Direct3D12"]
+
+# [target.'cfg(windows)'.features]
+# dx12 = ["dep:d3d12"]
 
 [dependencies]
+log = { version = "0.4.21" }
+thiserror = "1.0.30"
 vulkan-sys = { path = "../vulkan-sys", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.54.0", features = ["Win32"] }
 
 [dev-dependencies]
 glfw = "0.55.0"
+env_logger = "0.11.3"
+
+[[example]]
+name = "triangle"
+path = "examples/triangle.rs"
+# default-features = false
