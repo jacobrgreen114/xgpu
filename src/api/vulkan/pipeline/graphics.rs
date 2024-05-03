@@ -6,6 +6,7 @@ use crate::prelude::GraphicsApi;
 
 use vulkan_sys::*;
 
+use crate::BlendAttachmentState;
 use std::fmt::Debug;
 
 /*
@@ -20,7 +21,7 @@ pub struct GraphicsPipelineOwnership {
 impl Drop for GraphicsPipelineOwnership {
     fn drop(&mut self) {
         unsafe {
-            vk::destroy_pipeline(vkDestroyPipeline, self.device.handle(), self.handle, None);
+            wrapper::destroy_pipeline(vkDestroyPipeline, self.device.handle(), self.handle, None);
         }
     }
 }
@@ -59,7 +60,7 @@ impl VulkanGraphicsPipelineExt for VulkanGraphicsPipeline {
         device: VulkanDevice,
         create_info: &[VkGraphicsPipelineCreateInfo],
     ) -> crate::Result<Vec<Self>> {
-        let handles = vk::create_graphics_pipelines(
+        let handles = wrapper::create_graphics_pipelines(
             vkCreateGraphicsPipelines,
             device.handle(),
             std::ptr::null_mut(),
@@ -86,136 +87,209 @@ impl crate::api::traits::GraphicsPipeline<VulkanApi> for VulkanGraphicsPipeline 
         context: <VulkanApi as GraphicsApi>::Context,
         create_info: crate::GraphicsPipelineCreateInfo,
     ) -> crate::Result<Self> {
-        let shaders: Vec<VkPipelineShaderStageCreateInfo> = create_info
-            .shader_stages
+        let shader_stages = collect_shader_stages(&create_info.shaders);
+
+        let input_state = VkPipelineVertexInputStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            vertexBindingDescriptionCount: 0,
+            pVertexBindingDescriptions: std::ptr::null(),
+            vertexAttributeDescriptionCount: 0,
+            pVertexAttributeDescriptions: std::ptr::null(),
+        };
+
+        let input_assembly_state = VkPipelineInputAssemblyStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            topology: create_info.topology.into(),
+            primitiveRestartEnable: VK_FALSE,
+        };
+
+        let viewport_state = VkPipelineViewportStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            viewportCount: 1,
+            pViewports: std::ptr::null(),
+            scissorCount: 1,
+            pScissors: std::ptr::null(),
+        };
+
+        let rasterization_state = VkPipelineRasterizationStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            depthClampEnable: VK_FALSE,
+            rasterizerDiscardEnable: VK_FALSE,
+            polygonMode: create_info.rasterization.polygon_mode.into(),
+            cullMode: create_info.rasterization.cull_mode.into(),
+            frontFace: create_info.rasterization.front_face.into(),
+            depthBiasEnable: VK_FALSE,
+            depthBiasConstantFactor: 0.0,
+            depthBiasClamp: 0.0,
+            depthBiasSlopeFactor: 0.0,
+            lineWidth: 1.0,
+        };
+
+        let multisample_state = VkPipelineMultisampleStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            rasterizationSamples: VK_SAMPLE_COUNT_1_BIT,
+            sampleShadingEnable: VK_FALSE,
+            minSampleShading: 0.0,
+            pSampleMask: std::ptr::null(),
+            alphaToCoverageEnable: VK_FALSE,
+            alphaToOneEnable: VK_FALSE,
+        };
+
+        let depth_stencil_state = VkPipelineDepthStencilStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            depthTestEnable: VK_FALSE,
+            depthWriteEnable: VK_FALSE,
+            depthCompareOp: VK_COMPARE_OP_NEVER,
+            depthBoundsTestEnable: VK_FALSE,
+            stencilTestEnable: VK_FALSE,
+            front: VkStencilOpState {
+                failOp: 0,
+                passOp: 0,
+                depthFailOp: 0,
+                compareOp: 0,
+                compareMask: 0,
+                writeMask: 0,
+                reference: 0,
+            },
+            back: VkStencilOpState {
+                failOp: 0,
+                passOp: 0,
+                depthFailOp: 0,
+                compareOp: 0,
+                compareMask: 0,
+                writeMask: 0,
+                reference: 0,
+            },
+            minDepthBounds: 0.0,
+            maxDepthBounds: 0.0,
+        };
+
+        let blend_attachments: Vec<VkPipelineColorBlendAttachmentState> = create_info
+            .blend
+            .attachments
             .iter()
-            .map(|stage| VkPipelineShaderStageCreateInfo {
-                sType: VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                pNext: std::ptr::null(),
-                flags: 0,
-                stage: stage.stage.into(),
-                module: stage.module.handle(),
-                pName: stage.entry.as_ptr(),
-                pSpecializationInfo: std::ptr::null(),
-            })
+            .cloned()
+            .map(Into::into)
             .collect();
 
-        let create_info = VkGraphicsPipelineCreateInfo {
+        let color_blend_state = VkPipelineColorBlendStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            logicOpEnable: VK_FALSE,
+            logicOp: VK_LOGIC_OP_CLEAR,
+            attachmentCount: blend_attachments.len() as u32,
+            pAttachments: blend_attachments.as_ptr(),
+            blendConstants: [1.0; 4],
+        };
+
+        let dynamic_state = VkPipelineDynamicStateCreateInfo {
+            sType: VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+            pNext: std::ptr::null(),
+            flags: 0,
+            dynamicStateCount: 2,
+            pDynamicStates: [VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR].as_ptr(),
+        };
+
+        let info = VkGraphicsPipelineCreateInfo {
             sType: VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
-            stageCount: shaders.len() as u32,
-            pStages: shaders.as_ptr(),
-            pVertexInputState: create_info.vertex_input_state.native(),
-            pInputAssemblyState: create_info.input_assembly_state.native(),
+            stageCount: shader_stages.len() as u32,
+            pStages: shader_stages.as_ptr(),
+            pVertexInputState: &input_state,
+            pInputAssemblyState: &input_assembly_state,
             pTessellationState: std::ptr::null(),
-            pViewportState: &VIEWPORT_STATE,
-            pRasterizationState: create_info.rasterization_state.native(),
-            pMultisampleState: &MULTISAMPLE_STATE,
-            pDepthStencilState: &DEPTH_STENCIL_STATE,
-            pColorBlendState: &COLOR_BLEND_STATE,
-            pDynamicState: &DYNAMIC_STATE,
+            pViewportState: &viewport_state,
+            pRasterizationState: &rasterization_state,
+            pMultisampleState: &multisample_state,
+            pDepthStencilState: &depth_stencil_state,
+            pColorBlendState: &color_blend_state,
+            pDynamicState: &dynamic_state,
             layout: create_info.layout.handle(),
             renderPass: create_info.render_pass.handle(),
-            subpass: 0,
+            subpass: create_info.subpass,
             basePipelineHandle: std::ptr::null_mut(),
             basePipelineIndex: 0,
         };
 
-        Ok(Self::create_pipelines(context, &[create_info])?
-            .pop()
-            .unwrap())
+        let pipeline = Self::create_pipelines(context, &[info])?.pop().unwrap();
+
+        Ok(pipeline)
     }
 }
 
-static VIEWPORT_STATE: VkPipelineViewportStateCreateInfo = VkPipelineViewportStateCreateInfo {
-    sType: VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-    pNext: std::ptr::null(),
-    flags: 0,
-    viewportCount: 1,
-    pViewports: std::ptr::null(),
-    scissorCount: 1,
-    pScissors: std::ptr::null(),
-};
+impl Into<VkPipelineColorBlendAttachmentState> for BlendAttachmentState {
+    fn into(self) -> VkPipelineColorBlendAttachmentState {
+        VkPipelineColorBlendAttachmentState {
+            blendEnable: self.blend_enable.into(),
+            srcColorBlendFactor: self.src_color_blend_factor.into(),
+            dstColorBlendFactor: self.dst_color_blend_factor.into(),
+            colorBlendOp: self.color_blend_op.into(),
+            srcAlphaBlendFactor: self.src_alpha_blend_factor.into(),
+            dstAlphaBlendFactor: self.dst_alpha_blend_factor.into(),
+            alphaBlendOp: self.alpha_blend_op.into(),
+            colorWriteMask: self.color_write_mask.into(),
+        }
+    }
+}
 
-static MULTISAMPLE_STATE: VkPipelineMultisampleStateCreateInfo =
-    VkPipelineMultisampleStateCreateInfo {
-        sType: VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+fn create_shader_stage(
+    stage: VkShaderStageFlagBits,
+    shader: &VulkanShaderModule,
+) -> VkPipelineShaderStageCreateInfo {
+    VkPipelineShaderStageCreateInfo {
+        sType: VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
         pNext: std::ptr::null(),
         flags: 0,
-        rasterizationSamples: VK_SAMPLE_COUNT_1_BIT,
-        sampleShadingEnable: VK_FALSE,
-        minSampleShading: 0.0,
-        pSampleMask: std::ptr::null(),
-        alphaToCoverageEnable: VK_FALSE,
-        alphaToOneEnable: VK_FALSE,
-    };
+        stage,
+        module: shader.handle(),
+        pName: c"main".as_ptr(),
+        pSpecializationInfo: std::ptr::null(),
+    }
+}
 
-static DEPTH_STENCIL_STATE: VkPipelineDepthStencilStateCreateInfo =
-    VkPipelineDepthStencilStateCreateInfo {
-        sType: VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        pNext: std::ptr::null(),
-        flags: 0,
-        depthTestEnable: VK_FALSE,
-        depthWriteEnable: VK_FALSE,
-        depthCompareOp: VK_COMPARE_OP_NEVER,
-        depthBoundsTestEnable: VK_FALSE,
-        stencilTestEnable: VK_FALSE,
-        front: VkStencilOpState {
-            failOp: 0,
-            passOp: 0,
-            depthFailOp: 0,
-            compareOp: 0,
-            compareMask: 0,
-            writeMask: 0,
-            reference: 0,
-        },
-        back: VkStencilOpState {
-            failOp: 0,
-            passOp: 0,
-            depthFailOp: 0,
-            compareOp: 0,
-            compareMask: 0,
-            writeMask: 0,
-            reference: 0,
-        },
-        minDepthBounds: 0.0,
-        maxDepthBounds: 0.0,
-    };
+fn collect_shader_stages(shaders: &crate::ShaderStages) -> Vec<VkPipelineShaderStageCreateInfo> {
+    let mut shader_stages: Vec<VkPipelineShaderStageCreateInfo> = Vec::new();
+    shader_stages.reserve(5);
 
-static COLOR_BLEND_ATTACHMENT: &[VkPipelineColorBlendAttachmentState] =
-    &[VkPipelineColorBlendAttachmentState {
-        blendEnable: VK_TRUE,
-        srcColorBlendFactor: VK_BLEND_FACTOR_SRC_ALPHA,
-        dstColorBlendFactor: VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-        colorBlendOp: VK_BLEND_OP_ADD,
-        srcAlphaBlendFactor: VK_BLEND_FACTOR_ONE,
-        dstAlphaBlendFactor: VK_BLEND_FACTOR_ONE,
-        alphaBlendOp: VK_BLEND_OP_ADD,
-        colorWriteMask: (VK_COLOR_COMPONENT_R_BIT
-            | VK_COLOR_COMPONENT_G_BIT
-            | VK_COLOR_COMPONENT_B_BIT
-            | VK_COLOR_COMPONENT_A_BIT) as VkColorComponentFlags,
-    }];
+    shaders.vertex.as_ref().inspect(|shader| {
+        shader_stages.push(create_shader_stage(VK_SHADER_STAGE_VERTEX_BIT, shader));
+    });
 
-static COLOR_BLEND_STATE: VkPipelineColorBlendStateCreateInfo =
-    VkPipelineColorBlendStateCreateInfo {
-        sType: VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        pNext: std::ptr::null(),
-        flags: 0,
-        logicOpEnable: VK_FALSE,
-        logicOp: VK_LOGIC_OP_CLEAR,
-        attachmentCount: COLOR_BLEND_ATTACHMENT.len() as u32,
-        pAttachments: COLOR_BLEND_ATTACHMENT.as_ptr(),
-        blendConstants: [1.0; 4],
-    };
+    shaders.tess_ctrl.as_ref().inspect(|shader| {
+        shader_stages.push(create_shader_stage(
+            VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+            shader,
+        ));
+    });
 
-static DYNAMIC_STATES: &[VkDynamicState] = &[VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR];
+    shaders.tess_eval.as_ref().inspect(|shader| {
+        shader_stages.push(create_shader_stage(
+            VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+            shader,
+        ));
+    });
 
-static DYNAMIC_STATE: VkPipelineDynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo {
-    sType: VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-    pNext: std::ptr::null(),
-    flags: 0,
-    dynamicStateCount: DYNAMIC_STATES.len() as u32,
-    pDynamicStates: DYNAMIC_STATES.as_ptr(),
-};
+    shaders.geometry.as_ref().inspect(|shader| {
+        shader_stages.push(create_shader_stage(VK_SHADER_STAGE_GEOMETRY_BIT, shader));
+    });
+
+    shaders.fragment.as_ref().inspect(|shader| {
+        shader_stages.push(create_shader_stage(VK_SHADER_STAGE_FRAGMENT_BIT, shader));
+    });
+
+    shader_stages
+}

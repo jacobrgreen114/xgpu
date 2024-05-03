@@ -7,14 +7,8 @@ pub use render_pass::*;
 mod layout;
 pub use layout::*;
 
-// mod input_state;
-// pub use input_state::*;
-//
-// mod input_assembly;
-// pub use input_assembly::*;
-//
-// mod rasterization;
-// pub use rasterization::*;
-//
+mod shader;
+pub use shader::*;
+
 mod graphics;
 pub use graphics::*;

@@ -15,24 +15,24 @@ struct InstanceOwnership {
     handle: VkInstance,
     physical_devices: OnceLock<Vec<<VulkanApi as GraphicsApi>::Device>>,
 
-    #[cfg(feature = "gpu_debugging")]
+    #[cfg(feature = "validation")]
     debug_messenger: VkDebugUtilsMessengerEXT,
 
-    #[cfg(feature = "gpu_debugging")]
+    #[cfg(feature = "validation")]
     destroy_debug_utils:
         unsafe extern "C" fn(VkInstance, VkDebugUtilsMessengerEXT, *const VkAllocationCallbacks),
 }
 
 impl Drop for InstanceOwnership {
     fn drop(&mut self) {
-        #[cfg(feature = "gpu_debugging")]
-        vk::destroy_debug_utils_messenger_ext(
+        #[cfg(feature = "validation")]
+        wrapper::destroy_debug_utils_messenger_ext(
             self.destroy_debug_utils,
             self.handle,
             self.debug_messenger,
             None,
         );
-        vk::destroy_instance(vkDestroyInstance, self.handle, None);
+        wrapper::destroy_instance(vkDestroyInstance, self.handle, None);
     }
 }
 
@@ -53,7 +53,7 @@ impl Debug for VulkanInstance {
 fn get_instance_layers() -> Vec<*const std::ffi::c_char> {
     let mut vec = Vec::new();
 
-    #[cfg(feature = "gpu_debugging")]
+    #[cfg(feature = "validation")]
     vec.push(VK_KHR_VALIDATION_LAYER_NAME.as_ptr() as *const _);
 
     vec
@@ -74,7 +74,7 @@ fn get_instance_extensions() -> Vec<*const std::ffi::c_char> {
         panic!("Platform not implemented");
     }
 
-    #[cfg(feature = "gpu_debugging")]
+    #[cfg(feature = "validation")]
     vec.push(VK_EXT_DEBUG_UTILS_EXTENSION_NAME.as_ptr() as *const _);
 
     vec
@@ -96,33 +96,17 @@ impl ApiRoot<VulkanApi> for VulkanInstance {
             ppEnabledExtensionNames: extensions.as_ptr(),
         };
 
-        let handle = vk::create_instance(vkCreateInstance, &instance_create_info, None)?;
+        let handle = wrapper::create_instance(vkCreateInstance, &instance_create_info, None)?;
 
-        #[cfg(feature = "gpu_debugging")]
+        #[cfg(feature = "validation")]
         let (debug_messenger, destroy_debug_utils) = {
-            let create_debug_utils = {
-                let create: PFN_vkCreateDebugUtilsMessengerEXT = unsafe {
-                    std::mem::transmute(vk::get_instance_proc_addr(
-                        vkGetInstanceProcAddr,
-                        handle,
-                        c"vkCreateDebugUtilsMessengerEXT",
-                    ))
-                };
-                create.unwrap()
-            };
+            let create_debug_utils =
+                wrapper::CreateDebugUtilsMessengerEXT::load(vkGetInstanceProcAddr, handle).unwrap();
 
-            #[cfg(feature = "gpu_debugging")]
-            let destroy_debug_utils = {
-                let destroy: PFN_vkDestroyDebugUtilsMessengerEXT = unsafe {
-                    std::mem::transmute(vk::get_instance_proc_addr(
-                        vkGetInstanceProcAddr,
-                        handle,
-                        c"vkDestroyDebugUtilsMessengerEXT",
-                    ))
-                };
-
-                destroy.unwrap()
-            };
+            #[cfg(feature = "validation")]
+            let destroy_debug_utils =
+                wrapper::DestroyDebugUtilsMessengerEXT::load(vkGetInstanceProcAddr, handle)
+                    .unwrap();
 
             let debug_utils_create_info = VkDebugUtilsMessengerCreateInfoEXT {
                 sType: VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
@@ -137,11 +121,11 @@ impl ApiRoot<VulkanApi> for VulkanInstance {
                     | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
                     | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT)
                     as VkDebugUtilsMessageTypeFlagsEXT,
-                pfnUserCallback: Some(debug_utils_callback),
+                pfnUserCallback: debug_utils_callback,
                 pUserData: std::ptr::null_mut(),
             };
 
-            let debug_messenger = vk::create_debug_utils_messenger_ext(
+            let debug_messenger = wrapper::create_debug_utils_messenger_ext(
                 create_debug_utils,
                 handle,
                 &debug_utils_create_info,
@@ -155,10 +139,10 @@ impl ApiRoot<VulkanApi> for VulkanInstance {
             handle,
             physical_devices: OnceLock::new(),
 
-            #[cfg(feature = "gpu_debugging")]
+            #[cfg(feature = "validation")]
             debug_messenger,
 
-            #[cfg(feature = "gpu_debugging")]
+            #[cfg(feature = "validation")]
             destroy_debug_utils,
         });
 
@@ -177,8 +161,9 @@ impl VulkanInstance {
     fn enumerate_physical_device(&self) -> crate::Result<Vec<<VulkanApi as GraphicsApi>::Device>> {
         let to_physical_device = |handle: VkPhysicalDevice| {
             let properties =
-                vk::get_physical_device_properties(vkGetPhysicalDeviceProperties, handle);
-            let features = vk::get_physical_device_features(vkGetPhysicalDeviceFeatures, handle);
+                wrapper::get_physical_device_properties(vkGetPhysicalDeviceProperties, handle);
+            let features =
+                wrapper::get_physical_device_features(vkGetPhysicalDeviceFeatures, handle);
 
             VulkanPhysicalDevice::new(handle, properties, features)
         };
@@ -187,7 +172,7 @@ impl VulkanInstance {
             |handles: Vec<VkPhysicalDevice>| handles.into_iter().map(to_physical_device).collect();
 
         Ok(
-            vk::enumerate_physical_device(vkEnumeratePhysicalDevices, self.handle)
+            wrapper::enumerate_physical_devices(vkEnumeratePhysicalDevices, self.handle)
                 .map(convert_handles)?,
         )
     }
@@ -206,7 +191,7 @@ impl VulkanObject for VulkanInstance {
 */
 
 // todo : implement user application callbacks
-#[cfg(feature = "gpu_debugging")]
+#[cfg(feature = "validation")]
 unsafe extern "C" fn debug_utils_callback(
     severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
     message_type: VkDebugUtilsMessageTypeFlagsEXT,
@@ -217,13 +202,13 @@ unsafe extern "C" fn debug_utils_callback(
     VK_FALSE
 }
 
-#[cfg(feature = "gpu_debugging")]
+#[cfg(feature = "validation")]
 struct DebugUtilsObjectNameWrapper<'a> {
     object_type: VkObjectType,
     object_name: &'a str,
 }
 
-#[cfg(feature = "gpu_debugging")]
+#[cfg(feature = "validation")]
 impl Debug for DebugUtilsObjectNameWrapper<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("")
@@ -233,7 +218,7 @@ impl Debug for DebugUtilsObjectNameWrapper<'_> {
     }
 }
 
-#[cfg(feature = "gpu_debugging")]
+#[cfg(feature = "validation")]
 fn create_message(data: &VkDebugUtilsMessengerCallbackDataEXT) -> String {
     // #[cfg(windows)]
     // const LINE_ENDING: &'static str = "\r\n";
@@ -271,19 +256,20 @@ fn create_message(data: &VkDebugUtilsMessengerCallbackDataEXT) -> String {
     //     objects, LINE_ENDING, message_name, message
     // );
 
-    let formatted_message = format!("{}: {}", message_name, message);
+    let formatted_message = format!("{}", message);
+    // let formatted_message = format!("{}: {}", message_name, message);
 
     formatted_message
 }
 
-#[cfg(feature = "gpu_debugging")]
+#[cfg(feature = "validation")]
 fn debug_utils_callback_safe(
     severity: VkDebugUtilsMessageSeverityFlagBitsEXT,
     _types: VkDebugUtilsMessageTypeFlagsEXT,
     data: &VkDebugUtilsMessengerCallbackDataEXT,
 ) {
     if severity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT {
-        panic!("{}", create_message(data));
+        panic!("Vulkan : {}", create_message(data));
     }
 
     let level = match severity {

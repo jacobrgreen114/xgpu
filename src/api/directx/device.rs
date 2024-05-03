@@ -7,6 +7,7 @@ use windows::{
 };
 
 use crate::api::directx::factory::DirectXFactory;
+use crate::api::directx::queue::DirectXCommandQueue;
 use crate::api::directx::{DirectXApi, DirectXFactoryObject, DirectXObject};
 use crate::ContextCreateInfo;
 use std::fmt::Debug;
@@ -16,9 +17,11 @@ use std::sync::Arc;
 use crate::api::traits::GraphicsApi;
 
 struct DirectXDeviceData {
-    factory: <DirectXApi as GraphicsApi>::Root,
-    adapter: <DirectXApi as GraphicsApi>::Device,
-    queues: Vec<<DirectXApi as GraphicsApi>::Queue>,
+    factory: directx_type!(Root),
+    adapter: directx_type!(Device),
+    queues: Vec<directx_type!(Queue)>,
+    // #[cfg(feature = "validation")]
+    // debug: ID3D12Debug,
 }
 
 #[derive(Clone)]
@@ -49,19 +52,24 @@ impl Debug for DirectXDevice {
     }
 }
 
-impl crate::api::traits::Context<crate::api::directx::DirectXApi> for DirectXDevice {
+#[cfg(feature = "validation")]
+static mut DEBUG: Option<ID3D12Debug> = None;
+
+impl crate::api::traits::Context<DirectXApi> for DirectXDevice {
     fn new(
-        root: <DirectXApi as GraphicsApi>::Root,
-        device: <DirectXApi as GraphicsApi>::Device,
+        root: directx_type!(Root),
+        device: directx_type!(Device),
         create_info: ContextCreateInfo,
     ) -> crate::Result<Self> {
-        if cfg!(feature = "gpu_debugging") {
-            unsafe {
+        unsafe {
+            #[cfg(feature = "validation")]
+            DEBUG.get_or_insert_with(|| unsafe {
                 let mut debug: Option<ID3D12Debug> = None;
-                if let Some(debug) = D3D12GetDebugInterface(&mut debug).ok().and(debug) {
-                    debug.EnableDebugLayer();
-                }
-            }
+                D3D12GetDebugInterface(&mut debug).unwrap();
+                let debug = debug.unwrap();
+                debug.EnableDebugLayer();
+                debug
+            });
         }
 
         let dev = {
@@ -97,18 +105,20 @@ impl crate::api::traits::Context<crate::api::directx::DirectXApi> for DirectXDev
 
         let queue: ID3D12CommandQueue = unsafe { dev.CreateCommandQueue(&queue_desc)? };
 
-        let queue = <DirectXApi as GraphicsApi>::Queue::new(queue);
+        let queue = DirectXCommandQueue::new(queue);
 
         let data = Arc::new(DirectXDeviceData {
             factory: root,
             adapter: device,
             queues: vec![queue],
+            // #[cfg(feature = "validation")]
+            // debug,
         });
 
         Ok(Self { device: dev, data })
     }
 
-    fn queues(&self) -> &[<DirectXApi as GraphicsApi>::Queue] {
+    fn queues(&self) -> &[directx_type!(Queue)] {
         &self.data.queues
     }
 }

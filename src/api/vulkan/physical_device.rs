@@ -7,6 +7,7 @@ use std::any::type_name;
 use std::fmt::{Debug, Formatter};
 
 use crate::convert::MapInto;
+use crate::Extent2D;
 use vulkan_sys::*;
 
 /*
@@ -16,7 +17,7 @@ use vulkan_sys::*;
 struct PhysicalDeviceOwnership {
     handle: VkPhysicalDevice,
     properties: VulkanPhysicalDeviceProperties,
-    features: VulkanPhysicalDeviceFeatures,
+    // features: VulkanPhysicalDeviceFeatures,
 }
 
 #[derive(Clone)]
@@ -30,7 +31,7 @@ impl Debug for VulkanPhysicalDevice {
         f.debug_struct(type_name::<Self>())
             .field("handle", &self.handle)
             .field("properties", &self.ownership.properties)
-            .field("features", &self.ownership.features)
+            // .field("features", &self.ownership.features)
             .finish()
     }
 }
@@ -52,7 +53,7 @@ impl VulkanPhysicalDevice {
         let ownership = Ownership::new(PhysicalDeviceOwnership {
             handle,
             properties: properties.into(),
-            features: features.into(),
+            // features: features.into(),
         });
 
         Self { handle, ownership }
@@ -64,13 +65,13 @@ impl crate::api::traits::Device<VulkanApi> for VulkanPhysicalDevice {
         &self.ownership.properties
     }
 
-    fn features(&self) -> &<VulkanApi as GraphicsApi>::DeviceFeatures {
-        &self.ownership.features
-    }
+    // fn features(&self) -> &<VulkanApi as GraphicsApi>::DeviceFeatures {
+    //     &self.ownership.features
+    // }
 
     fn supports_surface(&self, surface: <VulkanApi as GraphicsApi>::Surface) -> bool {
         // todo : implement queue family indexing
-        vk::get_physical_device_surface_support_khr(
+        wrapper::get_physical_device_surface_support_khr(
             vkGetPhysicalDeviceSurfaceSupportKHR,
             self.handle(),
             0,
@@ -82,8 +83,8 @@ impl crate::api::traits::Device<VulkanApi> for VulkanPhysicalDevice {
     fn get_surface_capabilities(
         &self,
         surface: <VulkanApi as GraphicsApi>::Surface,
-    ) -> crate::Result<surface::VulkanSurfaceCapabilities> {
-        Ok(vk::get_physical_device_surface_capabilities_khr(
+    ) -> crate::Result<VulkanSurfaceCapabilities> {
+        Ok(wrapper::get_physical_device_surface_capabilities_khr(
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR,
             self.handle(),
             surface.handle(),
@@ -96,7 +97,7 @@ impl crate::api::traits::Device<VulkanApi> for VulkanPhysicalDevice {
         &self,
         surface: <VulkanApi as GraphicsApi>::Surface,
     ) -> crate::Result<Vec<crate::SurfaceFormat>> {
-        Ok(vk::get_physical_device_surface_formats_khr(
+        Ok(wrapper::get_physical_device_surface_formats_khr(
             vkGetPhysicalDeviceSurfaceFormatsKHR,
             self.handle(),
             surface.handle(),
@@ -108,7 +109,7 @@ impl crate::api::traits::Device<VulkanApi> for VulkanPhysicalDevice {
         &self,
         surface: <VulkanApi as GraphicsApi>::Surface,
     ) -> crate::Result<Vec<crate::PresentMode>> {
-        Ok(vk::get_physical_device_surface_present_modes_khr(
+        Ok(wrapper::get_physical_device_surface_present_modes_khr(
             vkGetPhysicalDeviceSurfacePresentModesKHR,
             self.handle(),
             surface.handle(),
@@ -159,20 +160,73 @@ impl crate::api::traits::DeviceProperties<VulkanApi> for VulkanPhysicalDevicePro
    Physical Device Features
 */
 
-pub struct VulkanPhysicalDeviceFeatures {
-    native: VkPhysicalDeviceFeatures,
+// pub struct VulkanPhysicalDeviceFeatures {
+//     native: VkPhysicalDeviceFeatures,
+// }
+//
+// impl From<VkPhysicalDeviceFeatures> for VulkanPhysicalDeviceFeatures {
+//     fn from(native: VkPhysicalDeviceFeatures) -> Self {
+//         Self { native }
+//     }
+// }
+//
+// impl Debug for VulkanPhysicalDeviceFeatures {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//         self.native.fmt(f)
+//     }
+// }
+//
+// impl crate::api::traits::DeviceFeatures<VulkanApi> for VulkanPhysicalDeviceFeatures {}
+
+/*
+   Surface Capabilities
+*/
+
+pub struct VulkanSurfaceCapabilities {
+    native: VkSurfaceCapabilitiesKHR,
 }
 
-impl From<VkPhysicalDeviceFeatures> for VulkanPhysicalDeviceFeatures {
-    fn from(native: VkPhysicalDeviceFeatures) -> Self {
+impl From<VkSurfaceCapabilitiesKHR> for VulkanSurfaceCapabilities {
+    fn from(native: VkSurfaceCapabilitiesKHR) -> Self {
         Self { native }
     }
 }
 
-impl Debug for VulkanPhysicalDeviceFeatures {
+impl Debug for VulkanSurfaceCapabilities {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.native.fmt(f)
+        f.debug_struct(type_name::<Self>())
+            .field("min_image_count", &self.min_image_count())
+            .field("max_image_count", &self.max_image_count())
+            .field("current_extent", &self.current_extent())
+            .field("min_image_extent", &self.min_image_extent())
+            .field("max_image_extent", &self.max_image_extent())
+            .field("max_image_array_layers", &self.max_image_array_layers())
+            .finish()
     }
 }
 
-impl crate::api::traits::DeviceFeatures<VulkanApi> for VulkanPhysicalDeviceFeatures {}
+impl crate::api::traits::SurfaceCapabilities<VulkanApi> for VulkanSurfaceCapabilities {
+    fn min_image_count(&self) -> u32 {
+        self.native.minImageCount
+    }
+
+    fn max_image_count(&self) -> u32 {
+        self.native.maxImageCount
+    }
+
+    fn current_extent(&self) -> Extent2D {
+        self.native.currentExtent.into()
+    }
+
+    fn min_image_extent(&self) -> Extent2D {
+        self.native.minImageExtent.into()
+    }
+
+    fn max_image_extent(&self) -> Extent2D {
+        self.native.maxImageExtent.into()
+    }
+
+    fn max_image_array_layers(&self) -> u32 {
+        self.native.maxImageArrayLayers
+    }
+}

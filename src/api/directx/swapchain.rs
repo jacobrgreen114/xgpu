@@ -6,10 +6,11 @@ use windows::{
     Win32::Graphics::Dxgi::Common::*, Win32::Graphics::Dxgi::*,
 };
 
-use crate::api::directx::{DirectXApi, DirectXFactoryObject, DirectXObject};
-use crate::prelude::{Context, GraphicsApi};
-use crate::SwapchainCreateInfo;
-use std::fmt::Debug;
+use crate::api::directx::*;
+use crate::api::traits::*;
+use crate::*;
+
+use crate::util::FailFast;
 use std::sync::Arc;
 
 struct DirectXSwapchainData {
@@ -23,7 +24,7 @@ pub struct DirectXSwapchain {
     data: Arc<DirectXSwapchainData>,
 }
 
-impl Debug for DirectXSwapchain {
+impl std::fmt::Debug for DirectXSwapchain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(std::any::type_name::<Self>())
             .field("handle", &self.swapchain.as_raw())
@@ -49,22 +50,21 @@ impl crate::api::traits::Swapchain<DirectXApi> for DirectXSwapchain {
             BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
             BufferCount: create_info.min_image_count,
             Scaling: DXGI_SCALING_STRETCH,
-            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
-            AlphaMode: DXGI_ALPHA_MODE_UNSPECIFIED,
+            SwapEffect: DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
+            AlphaMode: DXGI_ALPHA_MODE_UNSPECIFIED, // todo: figure out alpha mode
             Flags: 0,
         };
 
         let swapchain = unsafe {
-            let mut swapchain: Option<IDXGISwapChain1> = None;
             context.factory().handle().CreateSwapChainForHwnd(
                 context.queues()[0].handle(),
                 *surface.handle(),
                 &swapchain_desc,
                 None,
                 None,
-            )?;
-            swapchain.unwrap()
-        };
+            )
+        }
+        .fail_fast()?;
 
         let data = Arc::new(DirectXSwapchainData { context, surface });
 

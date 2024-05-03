@@ -6,19 +6,20 @@ use std::fmt::Debug;
 use vulkan_sys::*;
 
 use crate::prelude::*;
+use crate::ShaderCode;
 
-#[derive(Debug, Clone)]
-pub struct VulkanShaderCode<'a> {
-    code: &'a [u8],
-}
-
-impl<'a> crate::api::traits::ShaderCode<VulkanApi> for VulkanShaderCode<'a> {}
-
-impl<'a> From<&'a [u8]> for VulkanShaderCode<'a> {
-    fn from(code: &'a [u8]) -> Self {
-        Self { code }
-    }
-}
+// #[derive(Debug, Clone)]
+// pub struct VulkanShaderCode<'a> {
+//     code: &'a [u8],
+// }
+//
+// impl<'a> crate::api::traits::ShaderCode<VulkanApi> for VulkanShaderCode<'a> {}
+//
+// impl<'a> From<&'a [u8]> for VulkanShaderCode<'a> {
+//     fn from(code: &'a [u8]) -> Self {
+//         Self { code }
+//     }
+// }
 
 struct ShaderModuleOwnership {
     handle: VkShaderModule,
@@ -27,7 +28,7 @@ struct ShaderModuleOwnership {
 
 impl Drop for ShaderModuleOwnership {
     fn drop(&mut self) {
-        vk::destroy_shader_module(
+        wrapper::destroy_shader_module(
             vkDestroyShaderModule,
             self.device.handle(),
             self.handle,
@@ -59,20 +60,26 @@ impl VulkanObject for VulkanShaderModule {
 }
 
 impl crate::api::traits::Shader<VulkanApi> for VulkanShaderModule {
-    fn new(
+    fn from_code(
         context: <VulkanApi as GraphicsApi>::Context,
-        code: &VulkanShaderCode,
+        code: ShaderCode,
     ) -> crate::Result<Self> {
+        let code: &[u8] = code.into();
+
         let create_info = VkShaderModuleCreateInfo {
             sType: VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
             pNext: std::ptr::null(),
             flags: 0,
-            codeSize: code.code.len(),
-            pCode: code.code.as_ptr() as *const u32,
+            codeSize: code.len(),
+            pCode: code.as_ptr() as *const u32,
         };
 
-        let handle =
-            vk::create_shader_module(vkCreateShaderModule, context.handle(), &create_info, None)?;
+        let handle = wrapper::create_shader_module(
+            vkCreateShaderModule,
+            context.handle(),
+            &create_info,
+            None,
+        )?;
 
         let ownership = Ownership::new(ShaderModuleOwnership {
             handle,

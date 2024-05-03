@@ -3,7 +3,7 @@
 
 use crate::api::traits::*;
 use crate::api::vulkan::{
-    Ownership, VulkanApi, VulkanInstance, VulkanObject, VulkanPhysicalDevice,
+    Ownership, VulkanApi, VulkanInstance, VulkanInstanceObject, VulkanObject, VulkanPhysicalDevice,
 };
 use crate::ContextCreateInfo;
 use std::any::type_name;
@@ -22,7 +22,7 @@ struct VulkanDeviceOwnership {
 
 impl Drop for VulkanDeviceOwnership {
     fn drop(&mut self) {
-        vk::destroy_device(vkDestroyDevice, self.handle, None);
+        wrapper::destroy_device(vkDestroyDevice, self.handle, None);
     }
 }
 
@@ -45,6 +45,12 @@ impl VulkanObject for VulkanDevice {
 
     fn handle(&self) -> Self::Handle {
         self.handle
+    }
+}
+
+impl VulkanInstanceObject for VulkanDevice {
+    fn instance(&self) -> &VulkanInstance {
+        &self.ownership.instance
     }
 }
 
@@ -100,9 +106,9 @@ impl Context<VulkanApi> for VulkanDevice {
             pEnabledFeatures: &features,
         };
 
-        let handle = vk::create_device(vkCreateDevice, device.handle(), &create_info, None)?;
+        let handle = wrapper::create_device(vkCreateDevice, device.handle(), &create_info, None)?;
 
-        let queue = vk::get_device_queue(vkGetDeviceQueue, handle, 0, 0);
+        let queue = wrapper::get_device_queue(vkGetDeviceQueue, handle, 0, 0);
 
         let ownership = Ownership::new_cyclic(|weak| VulkanDeviceOwnership {
             handle,

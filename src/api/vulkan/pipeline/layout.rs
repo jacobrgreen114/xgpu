@@ -15,7 +15,7 @@ struct VulkanPipelineLayoutOwnership {
 
 impl Drop for VulkanPipelineLayoutOwnership {
     fn drop(&mut self) {
-        vk::destroy_pipeline_layout(
+        wrapper::destroy_pipeline_layout(
             vkDestroyPipelineLayout,
             self.device.handle(),
             self.handle,
@@ -38,8 +38,8 @@ impl VulkanObject for VulkanPipelineLayout {
     }
 }
 
-impl Debug for VulkanPipelineLayout {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl std::fmt::Debug for VulkanPipelineLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct(std::any::type_name::<Self>())
             .field("handle", &self.handle)
             .finish()
@@ -61,7 +61,7 @@ impl crate::api::traits::PipelineLayout<VulkanApi> for VulkanPipelineLayout {
             pPushConstantRanges: std::ptr::null(),
         };
 
-        let handle = vk::create_pipeline_layout(
+        let handle = wrapper::create_pipeline_layout(
             vkCreatePipelineLayout,
             context.handle(),
             &create_info,

@@ -6,41 +6,65 @@
 
 pub mod api;
 pub mod convert;
+mod util;
 
 pub mod prelude {
     pub use crate::api::traits::*;
 }
 
+mod datatypes;
+pub use datatypes::*;
+
 use prelude::*;
-use std::ffi::CStr;
-use std::fmt::{Display, Formatter};
 
-#[cfg(feature = "vulkan")]
-pub use vulkan_sys::*;
+macro_rules! get_api_type {
+    ($name:tt) => {
+        <crate::api::Api as crate::api::traits::GraphicsApi>::$name
+    };
+}
 
-pub type Root = <api::Api as GraphicsApi>::Root;
-pub type Device = <api::Api as GraphicsApi>::Device;
+pub type Root = get_api_type!(Root);
+pub type Device = get_api_type!(Device);
 
-pub type Surface = <api::Api as GraphicsApi>::Surface;
+pub type Surface = get_api_type!(Surface);
+pub type SurfaceCapabilities = get_api_type!(SurfaceCapabilities);
 
-pub type Context = <api::Api as GraphicsApi>::Context;
+pub type Context = get_api_type!(Context);
 
-pub type Queue = <api::Api as GraphicsApi>::Queue;
-pub type CommandPool = <api::Api as GraphicsApi>::CommandPool;
-pub type CommandBuffer = <api::Api as GraphicsApi>::CommandBuffer;
+pub type Queue = get_api_type!(Queue);
+pub type CommandPool = get_api_type!(CommandPool);
+pub type CommandBuffer = get_api_type!(CommandBuffer);
 
-pub type Swapchain = <api::Api as GraphicsApi>::Swapchain;
+pub type Fence = get_api_type!(Fence);
 
-pub type ShaderCode<'a> = <api::Api as GraphicsApi>::ShaderCode<'a>;
+// pub type CommandBufferRecordContext = <<api::Api as GraphicsApi>::CommandBuffer as api::traits::CommandBuffer<api::Api>>::RecordContext;
+// pub type RenderPassRecordContext = <<<api::Api as GraphicsApi>::CommandBuffer as api::traits::CommandBuffer<api::Api>>::RecordContext as api::traits::CommandBufferRecordContext>::RenderPassRecordContext;
+//
+pub type Swapchain = get_api_type!(Swapchain);
+pub type Image = get_api_type!(Image);
+pub type ImageView = get_api_type!(ImageView);
 
-pub type Shader = <api::Api as GraphicsApi>::Shader;
+pub type RenderPass = get_api_type!(RenderPass);
+pub type Framebuffer = get_api_type!(Framebuffer);
 
 pub type PipelineLayout = <api::Api as GraphicsApi>::PipelineLayout;
-pub type RenderPass = <api::Api as GraphicsApi>::RenderPass;
 
-pub type VertexInputState = <api::Api as GraphicsApi>::VertexInputState;
-pub type InputAssemblyState = <api::Api as GraphicsApi>::InputAssemblyState;
-pub type RasterizationState = <api::Api as GraphicsApi>::RasterizationState;
+pub enum ShaderCode<'a> {
+    Static(&'static [u8]),
+    Dynamic(&'a [u8]),
+}
+
+impl<'a> Into<&'a [u8]> for ShaderCode<'a> {
+    fn into(self) -> &'a [u8] {
+        match self {
+            ShaderCode::Static(code) => code,
+            ShaderCode::Dynamic(code) => code,
+        }
+    }
+}
+
+pub type Shader = get_api_type!(Shader);
+
 pub type GraphicsPipeline = <api::Api as GraphicsApi>::GraphicsPipeline;
 
 #[derive(Debug, Default)]
@@ -65,185 +89,141 @@ impl SurfaceCreateInfo {
 #[derive(Debug, Default)]
 pub struct ContextCreateInfo {}
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CommandPoolCreateInfo {
-    pub queue_family_index: u32,
     pub transient: bool,
     pub reset: bool,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct CommandBufferAllocateInfo {
+    // pub level: CommandBufferLevel,
+    // pub count: u32,
+}
+
+#[derive(Debug)]
+pub struct RenderPassBeginInfo {
+    // pub render_pass: RenderPass,
+    // pub framebuffer: Framebuffer,
+    // pub render_area: Rect2D,
+    // pub clear_values: Vec<ClearValue>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SwapchainCreateInfo {
     pub min_image_count: u32,
-    pub format: RenderTargetFormat,
+    pub format: Format,
     pub colorspace: Colorspace,
     pub extent: Extent2D,
-    pub composite_alpha: CompositeAlpha,
+    pub composite_alpha: CompositeAlphaMode,
     pub present_mode: PresentMode,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImageViewCreateInfo {
+    // pub view_type: ImageViewType,
+    pub format: Format,
+    // pub components: ComponentMapping,
+    // pub subresource_range: ImageSubresourceRange,
+}
+
+/*
+   Render Pass Create Info
+*/
+
+#[derive(Debug, Clone)]
+pub struct RenderPassCreateInfo<'a> {
+    pub attachments: &'a [AttachmentDescription],
+    pub subpasses: &'a [SubpassDescription<'a>],
+}
+
+#[derive(Debug, Clone)]
+pub struct AttachmentDescription {
+    pub format: Format,
+    // pub samples: SampleCountFlags,
+    // pub load_op: AttachmentLoadOp,
+    // pub store_op: AttachmentStoreOp,
+    // pub stencil_load_op: AttachmentLoadOp,
+    // pub stencil_store_op: AttachmentStoreOp,
+    // pub initial_layout: ImageLayout,
+    // pub final_layout: ImageLayout,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SubpassDescription<'a> {
+    pub input_attachments: &'a [AttachmentReference],
+    pub color_attachments: &'a [AttachmentReference],
+    // pub resolve_attachments: Vec<AttachmentReference>,
+    // pub depth_stencil_attachment: Option<AttachmentReference>,
+    // pub preserve_attachments: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AttachmentReference {
+    pub attachment: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct FramebufferCreateInfo<'a> {
+    pub render_pass: RenderPass,
+    pub extent: Extent2D,
+    pub attachments: &'a [ImageView],
 }
 
 #[derive(Debug, Clone)]
 pub struct PipelineLayoutCreateInfo {}
 
-#[derive(Debug, Clone)]
-pub struct RenderPassCreateInfo {}
+#[derive(Debug, Default, Clone)]
+pub struct ShaderStages {
+    pub vertex: Option<Shader>,
+    pub tess_ctrl: Option<Shader>,
+    pub tess_eval: Option<Shader>,
+    pub geometry: Option<Shader>,
+    pub fragment: Option<Shader>,
+}
 
-#[derive(Debug, Copy, Clone)]
-#[repr(i32)]
-pub enum ShaderStage {
-    Vertex = VK_SHADER_STAGE_VERTEX_BIT,
-    Fragment = VK_SHADER_STAGE_FRAGMENT_BIT,
+#[derive(Debug, Default, Clone)]
+pub struct RasterizationState {
+    pub polygon_mode: PolygonMode,
+    pub cull_mode: CullMode,
+    pub front_face: FrontFace,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct BlendAttachmentState {
+    pub blend_enable: bool,
+    pub src_color_blend_factor: BlendFactor,
+    pub dst_color_blend_factor: BlendFactor,
+    pub color_blend_op: BlendOp,
+    pub src_alpha_blend_factor: BlendFactor,
+    pub dst_alpha_blend_factor: BlendFactor,
+    pub alpha_blend_op: BlendOp,
+    pub color_write_mask: ColorComponentFlags,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct BlendState<'a> {
+    pub attachments: &'a [BlendAttachmentState],
 }
 
 #[derive(Debug, Clone)]
-pub struct ShaderStageCreateInfo<'a> {
-    pub module: Shader,
-    pub stage: ShaderStage,
-    pub entry: &'a CStr,
-}
-
-#[derive(Debug, Clone)]
-pub struct GraphicsPipelineCreateInfo<'a, 'b> {
-    pub shader_stages: &'a [ShaderStageCreateInfo<'b>],
-    pub vertex_input_state: &'a VertexInputState,
-    pub input_assembly_state: &'a InputAssemblyState,
-    pub rasterization_state: &'a RasterizationState,
+pub struct GraphicsPipelineCreateInfo<'a> {
+    pub shaders: ShaderStages,
+    pub topology: PrimitiveTopology,
+    pub rasterization: RasterizationState,
+    pub blend: BlendState<'a>,
     pub layout: PipelineLayout,
     pub render_pass: RenderPass,
+    pub subpass: u32,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct Extent2D {
-    pub width: u32,
-    pub height: u32,
+#[derive(Debug, Clone)]
+pub struct FenceCreateInfo {
+    pub signaled: bool,
 }
 
-// #[derive(Debug, Default)]
-// pub struct DeviceQuery {}
-//
-
-#[derive(Debug, Copy, Clone)]
-#[repr(i32)]
-pub enum DeviceType {
-    #[cfg(feature = "vulkan")]
-    Other = VK_PHYSICAL_DEVICE_TYPE_OTHER,
-
-    #[cfg(feature = "vulkan")]
-    IntegratedGpu = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU,
-
-    #[cfg(feature = "vulkan")]
-    DiscreteGpu = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
-
-    #[cfg(feature = "vulkan")]
-    VirtualGpu = VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU,
-
-    #[cfg(feature = "vulkan")]
-    Cpu = VK_PHYSICAL_DEVICE_TYPE_CPU,
-
-    #[cfg(feature = "directx")]
-    Gpu,
-
-    #[cfg(feature = "directx")]
-    Software,
-}
-
-impl DeviceType {
-    pub fn is_gpu(&self) -> bool {
-        match self {
-            #[cfg(feature = "vulkan")]
-            DeviceType::IntegratedGpu | DeviceType::DiscreteGpu | DeviceType::VirtualGpu => true,
-            #[cfg(feature = "directx")]
-            DeviceType::Gpu => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-#[non_exhaustive]
-#[repr(u32)]
-pub enum Vendor {
-    Nvidia = 0x10DE,
-    Amd = 0x1022,
-    Intel = 0x8086,
-}
-
-impl Into<u32> for Vendor {
-    fn into(self) -> u32 {
-        self as u32
-    }
-}
-
-impl From<u32> for Vendor {
-    fn from(vendor: u32) -> Self {
-        unsafe { std::mem::transmute(vendor) }
-    }
-}
-
-#[cfg(not(feature = "directx"))]
-#[derive(Debug, Copy, Clone)]
-#[non_exhaustive]
-#[repr(i32)]
-pub enum PresentMode {
-    Fifo = VK_PRESENT_MODE_FIFO_KHR,
-    Mailbox = VK_PRESENT_MODE_MAILBOX_KHR,
-    Immediate = VK_PRESENT_MODE_IMMEDIATE_KHR,
-}
-
-#[cfg(not(feature = "directx"))]
-impl Default for PresentMode {
-    fn default() -> Self {
-        PresentMode::Fifo
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-#[allow(non_camel_case_types)]
-#[non_exhaustive]
-#[repr(i32)]
-pub enum RenderTargetFormat {
-    R8G8B8A8_UNORM = <api::Api as GraphicsApi>::FORMAT_R8G8B8A8_UNORM,
-    R8G8B8A8_UNORM_SRGB = <api::Api as GraphicsApi>::FORMAT_R8G8B8A8_UNORM_SRGB,
-
-    B8G8R8A8_UNORM = <api::Api as GraphicsApi>::FORMAT_B8G8R8A8_UNORM,
-    B8G8R8A8_UNORM_SRGB = <api::Api as GraphicsApi>::FORMAT_B8G8R8A8_UNORM_SRGB,
-
-    R16G16B16A16_FLOAT = <api::Api as GraphicsApi>::FORMAT_R16G16B16A16_FLOAT,
-}
-
-#[cfg(not(feature = "directx"))]
-#[derive(Debug, Copy, Clone)]
-#[allow(non_camel_case_types)]
-#[non_exhaustive]
-#[repr(i32)]
-pub enum Colorspace {
-    SRGBNonLinear = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-    Extended_SRGB_Linear = VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT,
-}
-
-#[cfg(not(feature = "directx"))]
-#[derive(Debug, Copy, Clone)]
-pub struct SurfaceFormat {
-    pub format: RenderTargetFormat,
-    pub colorspace: Colorspace,
-}
-
-#[cfg(not(feature = "directx"))]
-#[derive(Debug, Copy, Clone)]
-#[non_exhaustive]
-#[repr(i32)]
-pub enum CompositeAlpha {
-    Opaque = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-    PreMultiplied = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
-    PostMultiplied = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
-}
-
-#[cfg(not(feature = "directx"))]
-impl Default for CompositeAlpha {
-    fn default() -> Self {
-        Self::Opaque
-    }
-}
+#[derive(Debug, Clone)]
+pub struct SemaphoreCreateInfo {}
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -251,9 +231,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[cfg(feature = "vulkan")]
     #[error("Vulkan API error: {0}")]
-    ApiError(#[from] vk::Error),
+    ApiError(#[from] vulkan_sys::wrapper::Error),
 
-    #[cfg(feature = "directx")]
-    #[error("DirectX API error: {0}")]
+    #[cfg(target_os = "windows")]
+    #[error("Windows error: {0}")]
     WindowsError(#[from] windows::core::Error),
 }

@@ -1,7 +1,7 @@
 // Copyright (c) 2024 Jacob R. Green
 // All rights reserved.
 
-use crate::api::vulkan::{Ownership, VulkanApi, VulkanDevice, VulkanObject};
+use crate::api::vulkan::{Ownership, VulkanApi, VulkanDevice, VulkanDeviceObject, VulkanObject};
 
 use vulkan_sys::*;
 
@@ -16,7 +16,7 @@ struct VulkanCommandPoolOwnership {
 
 impl Drop for VulkanCommandPoolOwnership {
     fn drop(&mut self) {
-        vk::destroy_command_pool(
+        wrapper::destroy_command_pool(
             vkDestroyCommandPool,
             self.device.handle(),
             self.handle,
@@ -47,6 +47,12 @@ impl VulkanObject for VulkanCommandPool {
     }
 }
 
+impl VulkanDeviceObject for VulkanCommandPool {
+    fn device(&self) -> &VulkanDevice {
+        &self.ownership.device
+    }
+}
+
 impl crate::api::traits::CommandPool<VulkanApi> for VulkanCommandPool {
     fn new(
         context: <VulkanApi as GraphicsApi>::Context,
@@ -67,11 +73,15 @@ impl crate::api::traits::CommandPool<VulkanApi> for VulkanCommandPool {
             sType: VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             pNext: std::ptr::null(),
             flags,
-            queueFamilyIndex: create_info.queue_family_index,
+            queueFamilyIndex: 0,
         };
 
-        let handle =
-            vk::create_command_pool(vkCreateCommandPool, context.handle(), &create_info, None)?;
+        let handle = wrapper::create_command_pool(
+            vkCreateCommandPool,
+            context.handle(),
+            &create_info,
+            None,
+        )?;
 
         let ownership = Ownership::new(VulkanCommandPoolOwnership {
             handle,

@@ -38,8 +38,8 @@ impl DirectXObject for DirectXFactory {
 }
 
 impl crate::api::traits::ApiRoot<crate::api::directx::DirectXApi> for DirectXFactory {
-    fn new(create_info: crate::RootCreateInfo) -> crate::Result<Self> {
-        let dxgi_factory_flags = if cfg!(feature = "gpu_debugging") {
+    fn new(create_info: &crate::RootCreateInfo) -> crate::Result<Self> {
+        let dxgi_factory_flags = if cfg!(feature = "validation") {
             DXGI_CREATE_FACTORY_DEBUG
         } else {
             0
@@ -59,6 +59,15 @@ impl crate::api::traits::ApiRoot<crate::api::directx::DirectXApi> for DirectXFac
 
             let mut desc = DXGI_ADAPTER_DESC1::default();
             unsafe { adapter.GetDesc1(&mut desc)? };
+
+            // let dev = {
+            //     let start = std::time::Instant::now();
+            //     let mut dev: Option<ID3D12Device> = None;
+            //     unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_12_0, &mut dev)? };
+            //     let elapsed = start.elapsed();
+            //     println!("Device creation took: {:?} {:?}", elapsed, desc);
+            //     dev.unwrap()
+            // };
 
             adapters.push(DirectXAdapter::new(adapter, desc));
         }

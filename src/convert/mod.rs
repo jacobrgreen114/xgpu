@@ -25,6 +25,17 @@ where
     }
 }
 
+// impl<TIt, UIt> MapInto<UIt> for TIt
+// where
+//     TIt: Iterator<Item = T>,
+//     UIt: Iterator<Item = U>,
+// {
+//     #[inline]
+//     fn map_into(self) -> UIt {
+//         self.map(Into::into)
+//     }
+// }
+
 // todo : skill issues
 
 // pub trait AllInto<T> {
